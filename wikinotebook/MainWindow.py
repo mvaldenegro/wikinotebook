@@ -1,8 +1,10 @@
 from PySide2.QtCore import QObject, SIGNAL, QDir, QSettings
 from PySide2.QtWidgets import QMainWindow, QToolBar, QTextEdit, QVBoxLayout, QWidget
 from PySide2.QtWidgets import QComboBox, QSizePolicy, QSystemTrayIcon, QMenu
-from PySide2.QtWidgets import QInputDialog
-from PySide2.QtGui import QIcon, QFontDatabase, QKeySequence
+from PySide2.QtWidgets import QInputDialog, QApplication
+from PySide2.QtGui import QIcon, QFontDatabase, QKeySequence, QPixmap
+
+import pathlib, os
 
 from .MarkdownRenderer import MarkdownRenderer
 from .NoteManager import Note, Notebook, NotebookManager
@@ -54,6 +56,7 @@ class MainWindow(QMainWindow):
         if len(self.nbManager.notebooks()) > 0:
             self.switchNotebook(self.nbManager.notebooks()[0].name)
 
+        self.createTrayIcon()
         
         self.readConfig()
 
@@ -134,10 +137,49 @@ class MainWindow(QMainWindow):
         return toolbar
 
     def createTrayIcon(self):
-        self.trayIcon = QSystemTrayIcon(self)
-        self.menu = QMenu()
+        path = os.path.join(pathlib.Path(__file__).parent.absolute(), "icons/notes.svg")
+        icon = QIcon(QPixmap(path))
+        
+        self.trayIcon = QSystemTrayIcon(icon, self)
+        self.trayMenu = None
 
-        self.trayIcon.setContextMenu(self.menu)
+        QObject.connect(self.trayIcon, SIGNAL("activated(QSystemTrayIcon::ActivationReason)"), self.trayIconActivated)
+
+        self.populateTrayMenu()
+        self.trayIcon.show()
+
+    def trayIconActivated(self, reason):
+        if reason != QSystemTrayIcon.Trigger:
+            return
+
+        if self.isVisible():
+            self.savedGeometry = self.saveGeometry()
+            self.hide()
+        else:
+            self.show()
+            self.activateWindow()
+            self.restoreGeometry(self.savedGeometry)
+
+    def populateTrayMenu(self):
+        del self.trayMenu
+        self.trayMenu = QMenu()
+
+        self.trayMenu.addAction(QIcon.fromTheme("folder-new"), "Create a new notebook", self.newNotebook)
+        self.trayMenu.addSeparator()
+
+        for notebook in self.nbManager.notebooks():
+            nbMenu = self.trayMenu.addMenu(QIcon.fromTheme("folder"), notebook.name)
+            
+            nbMenu.addAction(QIcon.fromTheme("document-new"), "Create a new note", self.newNote)
+            nbMenu.addSeparator()
+
+            for note in notebook.notes():
+                nbMenu.addAction(QIcon.fromTheme("text-x-generic"), note.name)
+
+        self.trayMenu.addSeparator()
+        self.trayMenu.addAction(QIcon.fromTheme("application-exit"), "&Quit", QApplication.instance().quit)
+
+        self.trayIcon.setContextMenu(self.trayMenu)
 
     def editTriggered(self, checked):
         if checked:
